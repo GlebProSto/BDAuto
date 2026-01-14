@@ -2,7 +2,7 @@ import sqlite3
 
 class CarDatabase:
     def __init__(self):
-        self.db_path = r"C:\Users\Admin\Desktop\БД\Автомобили"
+        self.db_path = r"C:\Users\Admin\Desktop\БД\Автомобили" # Вставить файл БД в кавычки
         self.con = None
         self.cursor = None
     

@@ -1,0 +1,514 @@
+PRAGMA foreign_keys = ON;
+
+DROP TABLE IF EXISTS cars;
+DROP TABLE IF EXISTS models;
+DROP TABLE IF EXISTS brands;
+DROP TABLE IF EXISTS body_types;
+DROP TABLE IF EXISTS engine_types;
+DROP TABLE IF EXISTS drivetrains;
+DROP TABLE IF EXISTS countries;
+DROP TABLE IF EXISTS change_log;
+
+CREATE TABLE countries (
+    country_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100)
+);
+
+CREATE TABLE brands (
+    brand_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
+    yearFounded INTEGER NOT NULL CHECK (yearFounded >= 1),
+    isActive INTEGER NOT NULL DEFAULT 0 CHECK (isActive IN (0, 1)),
+    country_id INTEGER NOT NULL,
+    brand_era TEXT GENERATED ALWAYS AS (
+        CASE 
+            WHEN yearFounded < 1900 THEN 'Основатели'
+            WHEN yearFounded BETWEEN 1900 AND 1945 THEN 'Старые бренды'
+            WHEN yearFounded BETWEEN 1946 AND 1980 THEN 'Послевоенные'
+            ELSE 'Современные'
+        END
+    ) VIRTUAL,
+    FOREIGN KEY (country_id) REFERENCES countries(country_id)
+);
+
+CREATE TABLE models (
+    model_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
+    yearFounded INTEGER NOT NULL CHECK (yearFounded >= 1),
+    yearDiscontinued INTEGER CHECK (yearDiscontinued >= 1),
+    generation TEXT NOT NULL CHECK (LENGTH(TRIM(generation)) >= 1 AND LENGTH(generation) <= 100),
+    brand_id INTEGER NOT NULL,
+    country_id INTEGER NOT NULL,
+    production_status TEXT GENERATED ALWAYS AS (
+        CASE 
+            WHEN yearDiscontinued IS NULL THEN 'В производстве'
+            ELSE 'Снят с производства'
+        END
+    ) VIRTUAL,
+    UNIQUE (name, generation),
+    FOREIGN KEY (brand_id) REFERENCES brands(brand_id),
+    FOREIGN KEY (country_id) REFERENCES countries(country_id)
+);
+
+CREATE TABLE body_types (
+    body_type_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
+    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(description) <= 500)),
+    door_count INTEGER NOT NULL CHECK (door_count >= 1)
+);
+
+CREATE TABLE engine_types (
+    engine_type_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
+    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(description) <= 500)),
+    country_id INTEGER NOT NULL,
+    FOREIGN KEY (country_id) REFERENCES countries(country_id)
+);
+
+CREATE TABLE drivetrains (
+    drivetrain_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
+    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(description) <= 500)),
+    country_id INTEGER NOT NULL,
+    drive_type_category TEXT GENERATED ALWAYS AS (
+        CASE 
+            WHEN name LIKE '%Передний%' THEN 'FWD'
+            WHEN name LIKE '%Задний%' THEN 'RWD' 
+            WHEN name LIKE '%Полный%' THEN 'AWD'
+            ELSE 'Другой'
+        END
+    ) VIRTUAL,
+    FOREIGN KEY (country_id) REFERENCES countries(country_id)
+);
+
+CREATE TABLE cars (
+    car_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vin TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(vin)) >= 1 AND LENGTH(vin) <= 100),
+    horsepower INTEGER NOT NULL CHECK (horsepower >= 1),
+    weight INTEGER NOT NULL CHECK (weight >= 500 AND weight <= 25000),
+    model_id INTEGER NOT NULL,
+    body_type_id INTEGER NOT NULL,
+    engine_type_id INTEGER NOT NULL,
+    drivetrain_id INTEGER NOT NULL,
+    country_id INTEGER NOT NULL,
+    power_to_weight_ratio DECIMAL(10,2) GENERATED ALWAYS AS (
+        ROUND(horsepower * 1.0 / weight, 2)
+    ) VIRTUAL,
+    FOREIGN KEY (model_id) REFERENCES models(model_id),
+    FOREIGN KEY (body_type_id) REFERENCES body_types(body_type_id),
+    FOREIGN KEY (engine_type_id) REFERENCES engine_types(engine_type_id),
+    FOREIGN KEY (drivetrain_id) REFERENCES drivetrains(drivetrain_id),
+    FOREIGN KEY (country_id) REFERENCES countries(country_id)
+);
+CREATE INDEX idx_brands_country_id ON brands(country_id);
+
+CREATE INDEX idx_models_brand_country ON models(brand_id, country_id);
+
+CREATE INDEX idx_cars_model_vin ON cars(model_id, vin);
+
+CREATE INDEX idx_engine_types_country ON engine_types(country_id);
+
+CREATE TABLE change_log (
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    operation_type TEXT NOT NULL,
+    changed_at DATETIME DEFAULT (datetime('now'))
+
+);
+
+CREATE TRIGGER log_brands_changes
+AFTER INSERT ON brands
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('brands', NEW.brand_id, 'INSERT');
+END;
+
+CREATE TRIGGER log_models_changes
+AFTER INSERT ON models
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('models', NEW.model_id, 'INSERT');
+END;
+
+CREATE TRIGGER log_cars_changes
+AFTER INSERT ON cars
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('cars', NEW.car_id, 'INSERT');
+END;
+
+CREATE TRIGGER log_body_types_changes
+AFTER INSERT ON body_types
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('body_types', NEW.body_type_id, 'INSERT');
+END;
+
+CREATE TRIGGER log_engine_types_changes
+AFTER INSERT ON engine_types
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('engine_types', NEW.engine_type_id, 'INSERT');
+END;
+
+CREATE TRIGGER log_drivetrains_changes
+AFTER INSERT ON drivetrains
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('drivetrains', NEW.drivetrain_id, 'INSERT');
+END;
+
+INSERT OR IGNORE INTO countries (country_id, name) VALUES 
+(1, 'Германия'), (2, 'Япония'), (3, 'США'), (4, 'Италия'), (5, 'Южная Корея'),
+(6, 'Франция'), (7, 'Великобритания'), (8, 'Швеция'), (9, 'Китай'), (10, 'Чехия');
+
+INSERT OR IGNORE INTO body_types (body_type_id, name, description, door_count) VALUES 
+(1, 'Седан', 'Классический четырехдверный легковой автомобиль', 4),
+(2, 'Хэтчбек', 'Компактный автомобиль с задней дверью', 5),
+(3, 'Внедорожник', 'Спортивно-утилитарный автомобиль', 5),
+(4, 'Купе', 'Двухдверный спортивный автомобиль', 2),
+(5, 'Кабриолет', 'Автомобиль с убирающейся крышей', 2),
+(6, 'Универсал', 'Автомобиль с увеличенным багажным отделением', 5),
+(7, 'Минивэн', 'Многоцелевой автомобиль', 5),
+(8, 'Пикап', 'Грузовик с открытой грузовой платформой', 4);
+
+INSERT OR IGNORE INTO brands (brand_id, name, yearFounded, isActive, country_id) VALUES 
+(1, 'Volkswagen', 1937, 1, 1),
+(2, 'Toyota', 1937, 1, 2),
+(3, 'Ford', 1903, 1, 3),
+(4, 'BMW', 1916, 1, 1),
+(5, 'Mercedes-Benz', 1926, 1, 1);
+
+INSERT OR IGNORE INTO engine_types (engine_type_id, name, description, country_id) VALUES 
+(1, 'Бензиновый I4', 'Четырехцилиндровый бензиновый двигатель', 1),
+(2, 'Бензиновый V6', 'Шестицилиндровый V-образный бензиновый двигатель', 3),
+(3, 'Бензиновый V8', 'Восьмицилиндровый V-образный бензиновый двигатель', 3),
+(4, 'Электрический', 'Полностью электрическая силовая установка', 2),
+(5, 'Гибридный', 'Комбинация электрического и ДВС', 2),
+(6, 'Дизельный I4', 'Четырехцилиндровый дизельный двигатель', 1),
+(7, 'Дизельный V6', 'Шестицилиндровый V-образный дизельный двигатель', 3);
+
+INSERT OR IGNORE INTO drivetrains (drivetrain_id, name, description, country_id) VALUES 
+(1, 'Передний привод', 'Переднеприводная компоновка', 1),
+(2, 'Задний привод', 'Заднеприводная компоновка', 3),
+(3, 'Полный привод', 'Постоянный полный привод', 2);
+
+INSERT OR IGNORE INTO models (model_id, name, yearFounded, yearDiscontinued, generation, brand_id, country_id) VALUES 
+(1, 'Golf', 1974, NULL, 'Mk8', 1, 1),
+(2, 'Camry', 1982, NULL, 'XV80', 2, 2),
+(3, 'Mustang', 1964, NULL, 'S650', 3, 3),
+(4, '3 Series', 1975, NULL, 'G20', 4, 1),
+(5, 'C-Class', 1993, NULL, 'W206', 5, 1);
+
+INSERT OR IGNORE INTO cars (vin, horsepower, weight, model_id, body_type_id, engine_type_id, drivetrain_id, country_id) VALUES 
+('1VWBT7A37DC000001', 147, 1320, 1, 2, 1, 1, 1),
+('2T1BURHE0JC000002', 203, 1560, 2, 1, 2, 1, 2),
+('1FA6P8TH3J5000003', 450, 1700, 3, 4, 3, 2, 3),
+('WBA5E3100F0G00004', 255, 1620, 4, 1, 1, 2, 1),
+('KNDPMCAC5L7000010', 187, 1630, 5, 3, 1, 3, 5);
+
+SELECT * FROM cars;
+SELECT * FROM countries;
+SELECT * FROM body_types;
+SELECT * FROM engine_types;
+SELECT * FROM drivetrains;
+SELECT * FROM brands;
+SELECT * FROM models;
+SELECT 
+    c.vin AS 'VIN',
+    c.horsepower AS 'Мощность (л.с.)',
+    c.weight AS 'Вес (кг)',
+    c.power_to_weight_ratio AS 'Удельная мощность',
+    m.name AS 'Модель',
+    m.generation AS 'Поколение',
+    b.name AS 'Марка',
+    bt.name AS 'Тип кузова',
+    et.name AS 'Тип двигателя',
+    d.name AS 'Привод',
+    co.name AS 'Страна производства',
+    m.production_status AS 'Статус производства'
+FROM cars c
+JOIN models m ON c.model_id = m.model_id
+JOIN brands b ON m.brand_id = b.brand_id
+JOIN body_types bt ON c.body_type_id = bt.body_type_id
+JOIN engine_types et ON c.engine_type_id = et.engine_type_id
+JOIN drivetrains d ON c.drivetrain_id = d.drivetrain_id
+JOIN countries co ON c.country_id = co.country_id
+ORDER BY c.horsepower DESC;
+SELECT 
+    c.vin AS 'VIN',
+    c.horsepower AS 'Мощность',
+    c.weight AS 'Вес',
+    b.name AS 'Марка',
+    m.name AS 'Модель',
+    co.name AS 'Страна',
+    bt.name AS 'Кузов',
+    et.name AS 'Двигатель',
+    d.name AS 'Привод'
+FROM cars c
+JOIN models m ON c.model_id = m.model_id
+JOIN brands b ON m.brand_id = b.brand_id
+JOIN body_types bt ON c.body_type_id = bt.body_type_id
+JOIN engine_types et ON c.engine_type_id = et.engine_type_id
+JOIN drivetrains d ON c.drivetrain_id = d.drivetrain_id
+JOIN countries co ON c.country_id = co.country_id
+ORDER BY c.weight ASC, co.name ASC;
+SELECT 
+    m.name AS 'Модель',
+    m.generation AS 'Поколение',
+    m.yearFounded AS 'Год начала',
+    m.production_status AS 'Статус',
+    b.name AS 'Марка',
+    b.yearFounded AS 'Год основания марки',
+    b.brand_era AS 'Эра марки',
+    co.name AS 'Страна марки'
+FROM models m
+JOIN brands b ON m.brand_id = b.brand_id
+JOIN countries co ON b.country_id = co.country_id
+ORDER BY b.yearFounded DESC, m.name ASC;
+
+SELECT 
+    et.name AS 'Тип двигателя',
+    et.description AS 'Описание двигателя',
+    co_et.name AS 'Страна двигателя',
+    d.name AS 'Тип привода',
+    d.drive_type_category AS 'Категория привода',
+    co_d.name AS 'Страна привода'
+FROM engine_types et
+JOIN countries co_et ON et.country_id = co_et.country_id
+JOIN drivetrains d
+JOIN countries co_d ON d.country_id = co_d.country_id
+ORDER BY co_et.name ASC, et.name ASC;
+
+
+SELECT 
+    c.vin AS 'VIN',
+    c.horsepower AS 'Мощность',
+    c.weight AS 'Вес',
+    c.power_to_weight_ratio AS 'Уд. мощность',
+    b.name AS 'Марка',
+    m.name AS 'Модель',
+    bt.name AS 'Кузов',
+    et.name AS 'Двигатель',
+    co.name AS 'Страна'
+FROM cars c
+JOIN models m ON c.model_id = m.model_id
+JOIN brands b ON m.brand_id = b.brand_id
+JOIN body_types bt ON c.body_type_id = bt.body_type_id
+JOIN engine_types et ON c.engine_type_id = et.engine_type_id
+JOIN countries co ON c.country_id = co.country_id
+ORDER BY c.power_to_weight_ratio DESC, c.horsepower DESC;
+
+
+SELECT 
+    b.name AS 'Марка',
+    b.yearFounded AS 'Год основания',
+    b.brand_era AS 'Эра',
+    co.name AS 'Страна',
+    COUNT(m.model_id) AS 'Количество моделей'
+FROM brands b
+JOIN countries co ON b.country_id = co.country_id
+LEFT JOIN models m ON b.brand_id = m.brand_id
+GROUP BY b.brand_id
+ORDER BY COUNT(m.model_id) DESC, b.name ASC;
+
+
+INSERT INTO cars (vin, horsepower, weight, model_id, body_type_id, engine_type_id, drivetrain_id, country_id)
+SELECT 
+    '1HGBH41JXMN109186' as vin,
+    180 as horsepower,
+    1450 as weight,
+    model_id,
+    body_type_id,
+    engine_type_id,
+    drivetrain_id,
+    country_id
+FROM cars 
+WHERE vin = '1VWBT7A37DC000001';
+
+INSERT INTO cars (vin, horsepower, weight, model_id, body_type_id, engine_type_id, drivetrain_id, country_id)
+SELECT 
+    '2FMDK3GC4DBA14329' as vin,
+    220 as horsepower,
+    1580 as weight,
+    (SELECT model_id FROM models WHERE name = 'Camry' AND generation = 'XV80') as model_id,
+    (SELECT body_type_id FROM body_types WHERE name = 'Седан') as body_type_id,
+    (SELECT engine_type_id FROM engine_types WHERE name = 'Бензиновый V6') as engine_type_id,
+    (SELECT drivetrain_id FROM drivetrains WHERE name = 'Передний привод') as drivetrain_id,
+    (SELECT country_id FROM countries WHERE name = 'Япония') as country_id;
+
+INSERT INTO models (name, yearFounded, generation, brand_id, country_id)
+SELECT 
+    'Passat' as name,
+    1973 as yearFounded,
+    'B8' as generation,
+    brand_id,
+    country_id
+FROM brands 
+WHERE name = 'Volkswagen';
+
+INSERT INTO models (name, yearFounded, generation, brand_id, country_id)
+SELECT 
+    'F-150' as name,
+    1948 as yearFounded,
+    'XIV' as generation,
+    brand_id,
+    country_id
+FROM brands 
+WHERE name = 'Ford';
+
+INSERT INTO brands (name, yearFounded, isActive, country_id)
+SELECT 
+    'Hyundai' as name,
+    1967 as yearFounded,
+    1 as isActive,
+    country_id
+FROM countries 
+WHERE name = 'Южная Корея';
+
+INSERT INTO engine_types (name, description, country_id)
+SELECT 
+    'Роторный двигатель' as name,
+    'Двигатель Ванкеля с роторно-поршневой системой' as description,
+    country_id
+FROM countries 
+WHERE name = 'Япония';
+
+INSERT INTO drivetrains (name, description, country_id)
+SELECT 
+    'Подключаемый полный привод' as name,
+    'Автоматически подключаемый полный привод' as description,
+    country_id
+FROM countries 
+WHERE name = 'США';
+
+INSERT INTO cars (vin, horsepower, weight, model_id, body_type_id, engine_type_id, drivetrain_id, country_id)
+SELECT 
+    '5YJSA1E2XJF000001' as vin,
+    350 as horsepower,
+    1950 as weight,
+    (SELECT model_id FROM models WHERE name = '3 Series' AND generation = 'G20') as model_id,
+    (SELECT body_type_id FROM body_types WHERE name = 'Седан') as body_type_id,
+    (SELECT engine_type_id FROM engine_types WHERE name = 'Электрический') as engine_type_id,
+    (SELECT drivetrain_id FROM drivetrains WHERE name = 'Полный привод') as drivetrain_id,
+    (SELECT country_id FROM countries WHERE name = 'Германия') as country_id;
+
+INSERT INTO cars (vin, horsepower, weight, model_id, body_type_id, engine_type_id, drivetrain_id, country_id)
+SELECT 
+    'JTDKN3DU0A0000001' as vin,
+    215 as horsepower,
+    1680 as weight,
+    (SELECT model_id FROM models WHERE name = 'Camry' AND generation = 'XV80') as model_id,
+    (SELECT body_type_id FROM body_types WHERE name = 'Седан') as body_type_id,
+    (SELECT engine_type_id FROM engine_types WHERE name = 'Гибридный') as engine_type_id,
+    (SELECT drivetrain_id FROM drivetrains WHERE name = 'Передний привод') as drivetrain_id,
+    (SELECT country_id FROM countries WHERE name = 'Япония') as country_id;
+SELECT 
+    'Мощность автомобилей' AS 'Статистика',
+    COUNT(*) AS 'Количество',
+    AVG(horsepower) AS 'Средняя мощность',
+    MIN(horsepower) AS 'Минимальная мощность',
+    MAX(horsepower) AS 'Максимальная мощность',
+    SUM(horsepower) AS 'Суммарная мощность'
+FROM cars;
+
+SELECT 
+    'Вес автомобилей' AS 'Статистика',
+    COUNT(*) AS 'Количество',
+    AVG(weight) AS 'Средний вес',
+    MIN(weight) AS 'Минимальный вес',
+    MAX(weight) AS 'Максимальный вес',
+    SUM(weight) AS 'Суммарный вес'
+FROM cars;
+
+SELECT 
+    'Год основания брендов' AS 'Статистика',
+    COUNT(*) AS 'Количество брендов',
+    AVG(yearFounded) AS 'Средний год основания',
+    MIN(yearFounded) AS 'Самый старый бренд',
+    MAX(yearFounded) AS 'Самый новый бренд'
+FROM brands;
+
+SELECT 
+    'Год основания моделей' AS 'Статистика',
+    COUNT(*) AS 'Количество моделей',
+    AVG(yearFounded) AS 'Средний год основания',
+    MIN(yearFounded) AS 'Самая старая модель',
+    MAX(yearFounded) AS 'Самая новая модель'
+FROM models;
+
+SELECT 
+    'Количество дверей у кузовов' AS 'Статистика',
+    COUNT(*) AS 'Количество типов кузовов',
+    AVG(door_count) AS 'Среднее количество дверей',
+    MIN(door_count) AS 'Минимальное количество дверей',
+    MAX(door_count) AS 'Максимальное количество дверей',
+    SUM(door_count) AS 'Суммарное количество дверей'
+FROM body_types;
+
+SELECT 
+    co.name AS 'Страна',
+    COUNT(*) AS 'Количество автомобилей',
+    AVG(c.horsepower) AS 'Средняя мощность',
+    MIN(c.horsepower) AS 'Минимальная мощность',
+    MAX(c.horsepower) AS 'Максимальная мощность',
+    SUM(c.horsepower) AS 'Суммарная мощность'
+FROM cars c
+JOIN countries co ON c.country_id = co.country_id
+GROUP BY co.name
+ORDER BY AVG(c.horsepower) DESC;
+
+SELECT 
+    bt.name AS 'Тип кузова',
+    COUNT(*) AS 'Количество автомобилей',
+    AVG(c.weight) AS 'Средний вес',
+    MIN(c.weight) AS 'Минимальный вес',
+    MAX(c.weight) AS 'Максимальный вес',
+    AVG(c.horsepower) AS 'Средняя мощность'
+FROM cars c
+JOIN body_types bt ON c.body_type_id = bt.body_type_id
+GROUP BY bt.name
+ORDER BY AVG(c.weight) DESC;
+
+SELECT 
+    d.name AS 'Тип привода',
+    COUNT(*) AS 'Количество автомобилей',
+    AVG(c.power_to_weight_ratio) AS 'Средняя удельная мощность',
+    MIN(c.power_to_weight_ratio) AS 'Минимальная удельная мощность',
+    MAX(c.power_to_weight_ratio) AS 'Максимальная удельная мощность',
+    AVG(c.horsepower) AS 'Средняя мощность'
+FROM cars c
+JOIN drivetrains d ON c.drivetrain_id = d.drivetrain_id
+GROUP BY d.name
+ORDER BY AVG(c.power_to_weight_ratio) DESC;
+
+SELECT 
+    b.name AS 'Марка',
+    COUNT(m.model_id) AS 'Количество моделей',
+    AVG(m.yearFounded) AS 'Средний год основания моделей',
+    MIN(m.yearFounded) AS 'Самая старая модель',
+    MAX(m.yearFounded) AS 'Самая новая модель'
+FROM brands b
+LEFT JOIN models m ON b.brand_id = m.brand_id
+GROUP BY b.name
+ORDER BY COUNT(m.model_id) DESC;
+
+SELECT 
+    'Общая статистика автомобилей' AS 'Категория',
+    COUNT(*) AS 'Всего автомобилей',
+    AVG(horsepower) AS 'Ср. мощность',
+    AVG(weight) AS 'Ср. вес',
+    AVG(power_to_weight_ratio) AS 'Ср. удельная мощность',
+    MIN(horsepower) AS 'Мин. мощность',
+    MAX(horsepower) AS 'Макс. мощность'
+FROM cars;
+
+
+
