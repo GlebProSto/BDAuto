@@ -7,6 +7,7 @@ Brands, models, and production eras
 Countries of origin
 Body types, engine types, and drivetrains
 Individual vehicles with VIN, horsepower, weight, and power-to-weight ratio
+
 ✨ Features:
 
 Full referential integrity with foreign keys
