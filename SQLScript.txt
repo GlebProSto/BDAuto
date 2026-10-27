@@ -11,12 +11,12 @@ DROP TABLE IF EXISTS change_log;
 
 CREATE TABLE countries (
     country_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100)
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(TRIM(name)) <= 100)
 );
 
 CREATE TABLE brands (
     brand_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(TRIM(name)) <= 100),
     yearFounded INTEGER NOT NULL CHECK (yearFounded >= 1),
     isActive INTEGER NOT NULL DEFAULT 0 CHECK (isActive IN (0, 1)),
     country_id INTEGER NOT NULL,
@@ -33,10 +33,10 @@ CREATE TABLE brands (
 
 CREATE TABLE models (
     model_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
+    name TEXT NOT NULL CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(TRIM(name)) <= 100),
     yearFounded INTEGER NOT NULL CHECK (yearFounded >= 1),
     yearDiscontinued INTEGER CHECK (yearDiscontinued >= 1),
-    generation TEXT NOT NULL CHECK (LENGTH(TRIM(generation)) >= 1 AND LENGTH(generation) <= 100),
+    generation TEXT NOT NULL CHECK (LENGTH(TRIM(generation)) >= 1 AND LENGTH(TRIM(generation)) <= 100),
     brand_id INTEGER NOT NULL,
     country_id INTEGER NOT NULL,
     production_status TEXT GENERATED ALWAYS AS (
@@ -52,23 +52,23 @@ CREATE TABLE models (
 
 CREATE TABLE body_types (
     body_type_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
-    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(description) <= 500)),
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(TRIM(name)) <= 100),
+    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(TRIM(description)) <= 500)),
     door_count INTEGER NOT NULL CHECK (door_count >= 1)
 );
 
 CREATE TABLE engine_types (
     engine_type_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
-    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(description) <= 500)),
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(TRIM(name)) <= 100),
+    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(TRIM(description)) <= 500)),
     country_id INTEGER NOT NULL,
     FOREIGN KEY (country_id) REFERENCES countries(country_id)
 );
 
 CREATE TABLE drivetrains (
     drivetrain_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(name) <= 100),
-    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(description) <= 500)),
+    name TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(name)) >= 1 AND LENGTH(TRIM(name)) <= 100),
+    description TEXT CHECK (description IS NULL OR (LENGTH(TRIM(description)) >= 1 AND LENGTH(TRIM(description)) <= 500)),
     country_id INTEGER NOT NULL,
     drive_type_category TEXT GENERATED ALWAYS AS (
         CASE 
@@ -83,7 +83,7 @@ CREATE TABLE drivetrains (
 
 CREATE TABLE cars (
     car_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    vin TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(vin)) >= 1 AND LENGTH(vin) <= 100),
+    vin TEXT NOT NULL UNIQUE CHECK (LENGTH(TRIM(vin)) >= 1 AND LENGTH(TRIM(vin)) <= 100),
     horsepower INTEGER NOT NULL CHECK (horsepower >= 1),
     weight INTEGER NOT NULL CHECK (weight >= 500 AND weight <= 25000),
     model_id INTEGER NOT NULL,
@@ -91,7 +91,7 @@ CREATE TABLE cars (
     engine_type_id INTEGER NOT NULL,
     drivetrain_id INTEGER NOT NULL,
     country_id INTEGER NOT NULL,
-    power_to_weight_ratio DECIMAL(10,2) GENERATED ALWAYS AS (
+    power_to_weight_ratio NUMERIC GENERATED ALWAYS AS (
         ROUND(horsepower * 1.0 / weight, 2)
     ) VIRTUAL,
     FOREIGN KEY (model_id) REFERENCES models(model_id),
@@ -163,6 +163,102 @@ FOR EACH ROW
 BEGIN
     INSERT INTO change_log (table_name, record_id, operation_type)
     VALUES ('drivetrains', NEW.drivetrain_id, 'INSERT');
+END;
+
+CREATE TRIGGER log_brands_update
+AFTER UPDATE ON brands
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('brands', OLD.brand_id, 'UPDATE');
+END;
+
+CREATE TRIGGER log_models_update
+AFTER UPDATE ON models
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('models', OLD.model_id, 'UPDATE');
+END;
+
+CREATE TRIGGER log_cars_update
+AFTER UPDATE ON cars
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('cars', OLD.car_id, 'UPDATE');
+END;
+
+CREATE TRIGGER log_body_types_update
+AFTER UPDATE ON body_types
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('body_types', OLD.body_type_id, 'UPDATE');
+END;
+
+CREATE TRIGGER log_engine_types_update
+AFTER UPDATE ON engine_types
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('engine_types', OLD.engine_type_id, 'UPDATE');
+END;
+
+CREATE TRIGGER log_drivetrains_update
+AFTER UPDATE ON drivetrains
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('drivetrains', OLD.drivetrain_id, 'UPDATE');
+END;
+
+CREATE TRIGGER log_brands_delete
+AFTER DELETE ON brands
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('brands', OLD.brand_id, 'DELETE');
+END;
+
+CREATE TRIGGER log_models_delete
+AFTER DELETE ON models
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('models', OLD.model_id, 'DELETE');
+END;
+
+CREATE TRIGGER log_cars_delete
+AFTER DELETE ON cars
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('cars', OLD.car_id, 'DELETE');
+END;
+
+CREATE TRIGGER log_body_types_delete
+AFTER DELETE ON body_types
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('body_types', OLD.body_type_id, 'DELETE');
+END;
+
+CREATE TRIGGER log_engine_types_delete
+AFTER DELETE ON engine_types
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('engine_types', OLD.engine_type_id, 'DELETE');
+END;
+
+CREATE TRIGGER log_drivetrains_delete
+AFTER DELETE ON drivetrains
+FOR EACH ROW
+BEGIN
+    INSERT INTO change_log (table_name, record_id, operation_type)
+    VALUES ('drivetrains', OLD.drivetrain_id, 'DELETE');
 END;
 
 INSERT OR IGNORE INTO countries (country_id, name) VALUES 
@@ -512,3 +608,9 @@ FROM cars;
 
 
 
+
+-- Демонстрация работы триггеров логирования (UPDATE/DELETE)
+UPDATE cars SET horsepower = horsepower + 10 WHERE vin = '1VWBT7A37DC000001';
+DELETE FROM cars WHERE vin = '1HGBH41JXMN109186';
+
+SELECT * FROM change_log ORDER BY changed_at DESC, log_id DESC LIMIT 10;

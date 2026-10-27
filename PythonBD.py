@@ -1,28 +1,61 @@
+import os
 import sqlite3
 
 class CarDatabase:
+    # Путь к БД по умолчанию — рядом со скриптом; можно заменить на свой
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    DB_DIR = os.path.join(BASE_DIR, "БД")
+    DB_PATH = os.path.join(DB_DIR, "Автомобили.db")
+    SQL_SCRIPT = os.path.join(BASE_DIR, "SQLScript.txt")
+
     def __init__(self):
-        self.db_path = r"C:\Users\Admin\Desktop\БД\Автомобили" # Вставить файл БД в кавычки
+        self.db_path = self.DB_PATH  # Вписать свой путь к файлу БД при необходимости
         self.con = None
         self.cursor = None
     
     def connect(self):
         try:
-            
+            os.makedirs(self.DB_DIR, exist_ok=True)
             self.con = sqlite3.connect(self.db_path)
             self.cursor = self.con.cursor()
             self.cursor.execute("PRAGMA foreign_keys = ON")
+            self._ensure_schema()
             print(f"Подключение к БД: {self.db_path}")
             return True
-        except sqlite3.Error as e:
+        except (sqlite3.Error, OSError) as e:
             print(f"Ошибка подключения: {e}")
             return False
+
+    def _ensure_schema(self):
+        """Создаёт схему и демо-данные, если БД пуста"""
+        self.cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'countries'"
+        )
+        if self.cursor.fetchone() is not None:
+            return
+        if not os.path.exists(self.SQL_SCRIPT):
+            raise sqlite3.Error(f"Не найден SQL-скрипт: {self.SQL_SCRIPT}")
+        print("БД пуста — выполняю SQLScript.txt для создания схемы...")
+        with open(self.SQL_SCRIPT, encoding="utf-8") as f:
+            self.cursor.executescript(f.read())
+        self.con.commit()
+
+    def close(self):
+        if self.con is not None:
+            self.con.close()
+            self.con = None
+            self.cursor = None
 
     def check_exit(self, input_text):
         return str(input_text).strip().lower() in ['0', 'exit', 'выход', 'меню', 'back', 'назад']
 
     def safe_input(self, prompt):
-        user_input = input(prompt)
+        try:
+            user_input = input(prompt)
+        except EOFError:
+            # Закончился входной поток (пайп/подключение без консоли) — выходим в меню
+            print()
+            return None
         if self.check_exit(user_input):
             return None
         return user_input
@@ -35,6 +68,25 @@ class CarDatabase:
                 return int(user_input)
             except ValueError:
                 print("Ошибка: введите целое число!")
+
+    def to_id(self, value):
+        """Преобразует введённый номер записи в int; None — ошибка ввода"""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            print("Ошибка: введите целое число!")
+            return None
+
+    def safe_optional_int_input(self, prompt):
+        """Целое число или пустой ввод (вернёт None); None — ещё и выход по '0'"""
+        while True:
+            user_input = self.safe_input(prompt)
+            if user_input is None or user_input == "":
+                return None
+            try:
+                return int(user_input)
+            except ValueError:
+                print("Ошибка: введите целое число или оставьте поле пустым!")
 
     def show_statistics(self):
         try:
@@ -97,15 +149,22 @@ class CarDatabase:
             
             table_name = tables[int(table_choice) - 1]
             
-            self.cursor.execute(f"PRAGMA table_info({table_name})")
+            # table_xinfo показывает и вычисляемые колонки (hidden = 2/3)
+            self.cursor.execute(f"PRAGMA table_xinfo({table_name})")
             columns = self.cursor.fetchall()
             
             print(f"\nСодержимое таблицы {table_name}:")
             self.get_table_data(table_name)
             
-            pk_column = columns[0][1]
+            pk_column = next((col[1] for col in columns if col[5] == 1), columns[0][1])
             
-            record_id = self.safe_input(f"\nВведите номер записи для редактирования ({pk_column}): ")
+            # Редактировать можно только обычные поля: не PK (col[5]) и не вычисляемые (col[6])
+            editable_columns = [col for col in columns if col[5] == 0 and col[6] == 0]
+            if not editable_columns:
+                print("В этой таблице нет полей для редактирования!")
+                return
+            
+            record_id = self.safe_int_input(f"\nВведите номер записи для редактирования ({pk_column}): ")
             if record_id is None:
                 return
             
@@ -120,19 +179,19 @@ class CarDatabase:
             for i, col in enumerate(columns):
                 print(f"{i+1}. {col[1]}: {record[i]}")
             
-            print("\nВыберите поле для редактирования:")
-            for i, col in enumerate(columns, 1):
+            print("\nВыберите поле для редактирования (первичный ключ и вычисляемые поля недоступны):")
+            for i, col in enumerate(editable_columns, 1):
                 print(f"{i} - {col[1]}")
             
-            field_choice = self.safe_input("Введите номер поля: ")
+            field_choice = self.safe_int_input("Введите номер поля: ")
             if field_choice is None:
                 return
-            if not field_choice.isdigit() or not (1 <= int(field_choice) <= len(columns)):
+            if not (1 <= field_choice <= len(editable_columns)):
                 print("Ошибка: введите корректный номер поля!")
                 return
             
-            selected_column = columns[int(field_choice) - 1][1]
-            column_type = columns[int(field_choice) - 1][2].upper()
+            selected_column = editable_columns[field_choice - 1][1]
+            column_type = editable_columns[field_choice - 1][2].upper()
             
             new_value = self.safe_input(f"Введите новое значение для '{selected_column}': ")
             if new_value is None:
@@ -226,7 +285,7 @@ class CarDatabase:
             self.cursor.execute(f"SELECT * FROM {table_name}")
             data = self.cursor.fetchall()
             
-            self.cursor.execute(f"PRAGMA table_info({table_name})")
+            self.cursor.execute(f"PRAGMA table_xinfo({table_name})")
             columns = [col[1] for col in self.cursor.fetchall()]
             
             print(f"\nТаблица {table_name}:")
@@ -296,7 +355,9 @@ class CarDatabase:
             if country_id is None:
                 return None
         else:
-            country_id = int(country_choice)
+            country_id = self.to_id(country_choice)
+            if country_id is None:
+                return None
         
         try:
             self.cursor.execute(
@@ -335,7 +396,9 @@ class CarDatabase:
             if brand_id is None:
                 return None
         else:
-            brand_id = int(brand_choice)
+            brand_id = self.to_id(brand_choice)
+            if brand_id is None:
+                return None
         
         print("\nДоступные страны:")
         self.cursor.execute("SELECT country_id, name FROM countries")
@@ -365,12 +428,19 @@ class CarDatabase:
             if country_id is None:
                 return None
         else:
-            country_id = int(country_choice)
+            country_id = self.to_id(country_choice)
+            if country_id is None:
+                return None
         
         yearDiscontinued_input = self.safe_input("Введите год снятия с производства (или Enter если нет): ")
         if yearDiscontinued_input is None:
             return None
-        yearDiscontinued = int(yearDiscontinued_input) if yearDiscontinued_input else None
+        if yearDiscontinued_input:
+            yearDiscontinued = self.to_id(yearDiscontinued_input)
+            if yearDiscontinued is None:
+                return None
+        else:
+            yearDiscontinued = None
         
         try:
             self.cursor.execute(
@@ -380,11 +450,14 @@ class CarDatabase:
             self.con.commit()
             print(f"Модель '{name}' успешно добавлена!")
             
-            self.cursor.execute("SELECT model_id FROM models WHERE name = ?", (name,))
+            self.cursor.execute(
+                "SELECT model_id FROM models WHERE name = ? AND generation = ?", 
+                (name, generation)
+            )
             return self.cursor.fetchone()[0]
         except sqlite3.Error as e:
             if "UNIQUE constraint failed" in str(e):
-                print("Ошибка: модель с таким названием уже существует!")
+                print("Ошибка: модель с таким названием и поколением уже существует!")
             else:
                 print(f"Ошибка при добавлении модели: {e}")
             return None
@@ -450,7 +523,9 @@ class CarDatabase:
             if country_id is None:
                 return None
         else:
-            country_id = int(country_choice)
+            country_id = self.to_id(country_choice)
+            if country_id is None:
+                return None
         
         try:
             self.cursor.execute(
@@ -497,7 +572,9 @@ class CarDatabase:
             if country_id is None:
                 return None
         else:
-            country_id = int(country_choice)
+            country_id = self.to_id(country_choice)
+            if country_id is None:
+                return None
         
         try:
             self.cursor.execute(
@@ -557,7 +634,9 @@ class CarDatabase:
                     if country_id is None:
                         return False
                 else:
-                    country_id = int(country_choice)
+                    country_id = self.to_id(country_choice)
+                    if country_id is None:
+                        return False
                 
                 self.cursor.execute(
                     "INSERT INTO brands (name, yearFounded, isActive, country_id) VALUES (?, ?, ?, ?)", 
@@ -581,7 +660,9 @@ class CarDatabase:
                     if brand_id is None:
                         return False
                 else:
-                    brand_id = int(brand_choice)
+                    brand_id = self.to_id(brand_choice)
+                    if brand_id is None:
+                        return False
                 
                 print("\nДоступные страны:")
                 self.cursor.execute("SELECT country_id, name FROM countries")
@@ -611,12 +692,19 @@ class CarDatabase:
                     if country_id is None:
                         return False
                 else:
-                    country_id = int(country_choice)
+                    country_id = self.to_id(country_choice)
+                    if country_id is None:
+                        return False
                 
                 yearDiscontinued_input = self.safe_input("Введите год снятия с производства (или Enter если нет): ")
                 if yearDiscontinued_input is None:
                     return False
-                yearDiscontinued = int(yearDiscontinued_input) if yearDiscontinued_input else None
+                if yearDiscontinued_input:
+                    yearDiscontinued = self.to_id(yearDiscontinued_input)
+                    if yearDiscontinued is None:
+                        return False
+                else:
+                    yearDiscontinued = None
                 
                 self.cursor.execute(
                     "INSERT INTO models (name, yearFounded, yearDiscontinued, generation, brand_id, country_id) VALUES (?, ?, ?, ?, ?, ?)", 
@@ -666,7 +754,9 @@ class CarDatabase:
                     if country_id is None:
                         return False
                 else:
-                    country_id = int(country_choice)
+                    country_id = self.to_id(country_choice)
+                    if country_id is None:
+                        return False
                 
                 self.cursor.execute(
                     "INSERT INTO engine_types (name, description, country_id) VALUES (?, ?, ?)", 
@@ -698,7 +788,9 @@ class CarDatabase:
                     if country_id is None:
                         return False
                 else:
-                    country_id = int(country_choice)
+                    country_id = self.to_id(country_choice)
+                    if country_id is None:
+                        return False
                 
                 self.cursor.execute(
                     "INSERT INTO drivetrains (name, description, country_id) VALUES (?, ?, ?)", 
@@ -722,7 +814,9 @@ class CarDatabase:
                     if model_id is None:
                         return False
                 else:
-                    model_id = int(model_choice)
+                    model_id = self.to_id(model_choice)
+                    if model_id is None:
+                        return False
                 
                 print("\nДоступные типы кузова:")
                 self.cursor.execute("SELECT body_type_id, name FROM body_types")
@@ -740,7 +834,9 @@ class CarDatabase:
                     if body_type_id is None:
                         return False
                 else:
-                    body_type_id = int(body_choice)
+                    body_type_id = self.to_id(body_choice)
+                    if body_type_id is None:
+                        return False
                 
                 print("\nДоступные типы двигателей:")
                 self.cursor.execute("SELECT engine_type_id, name FROM engine_types")
@@ -758,7 +854,9 @@ class CarDatabase:
                     if engine_type_id is None:
                         return False
                 else:
-                    engine_type_id = int(engine_choice)
+                    engine_type_id = self.to_id(engine_choice)
+                    if engine_type_id is None:
+                        return False
                 
                 print("\nДоступные типы привода:")
                 self.cursor.execute("SELECT drivetrain_id, name FROM drivetrains")
@@ -776,7 +874,9 @@ class CarDatabase:
                     if drivetrain_id is None:
                         return False
                 else:
-                    drivetrain_id = int(drivetrain_choice)
+                    drivetrain_id = self.to_id(drivetrain_choice)
+                    if drivetrain_id is None:
+                        return False
                 
                 print("\nДоступные страны:")
                 self.cursor.execute("SELECT country_id, name FROM countries")
@@ -806,7 +906,9 @@ class CarDatabase:
                     if country_id is None:
                         return False
                 else:
-                    country_id = int(country_choice)
+                    country_id = self.to_id(country_choice)
+                    if country_id is None:
+                        return False
 
                 self.cursor.execute(
                     "INSERT INTO cars (vin, horsepower, weight, model_id, body_type_id, engine_type_id, drivetrain_id, country_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -825,7 +927,7 @@ class CarDatabase:
                 elif "brands.name" in error_msg:
                     print("Ошибка: бренд с таким названием уже существует!")
                 elif "models.name" in error_msg:
-                    print("Ошибка: модель с таким названием уже существует!")
+                    print("Ошибка: модель с таким названием и поколением уже существует!")
                 elif "cars.vin" in error_msg:
                     print("Ошибка: автомобиль с таким VIN уже существует!")
                 else:
@@ -838,6 +940,54 @@ class CarDatabase:
                 print(f"Ошибка базы данных: {e}")
             return False
 
+    def delete_data(self):
+        print("\nУДАЛЕНИЕ ДАННЫХ")
+        print("Введите '0' в любой момент для возврата в главное меню")
+        
+        # 'Дочерние' таблицы первыми — чтобы не упираться в внешние ключи
+        tables = ["cars", "models", "brands", "body_types", "engine_types", "drivetrains", "countries"]
+        
+        print("\nДоступные таблицы для удаления:")
+        for i, table in enumerate(tables, 1):
+            print(f"{i} - {table}")
+        
+        table_choice = self.safe_int_input("\nВведите номер таблицы: ")
+        if table_choice is None:
+            return
+        if not (1 <= table_choice <= len(tables)):
+            print("Ошибка: введите корректный номер таблицы!")
+            return
+        
+        table_name = tables[table_choice - 1]
+        self.get_table_data(table_name)
+        
+        self.cursor.execute(f"PRAGMA table_info({table_name})")
+        pk_column = self.cursor.fetchall()[0][1]
+        
+        record_id = self.safe_int_input(f"\nВведите номер записи для удаления ({pk_column}): ")
+        if record_id is None:
+            return
+        
+        try:
+            self.cursor.execute(f"SELECT * FROM {table_name} WHERE {pk_column} = ?", (record_id,))
+            if not self.cursor.fetchone():
+                print("Запись не найдена!")
+                return
+            
+            confirm = self.safe_input(f"Удалить запись {record_id} из таблицы {table_name}? (да/нет): ")
+            if confirm is None or confirm.lower() not in ("да", "yes", "y", "1"):
+                print("Удаление отменено.")
+                return
+            
+            self.cursor.execute(f"DELETE FROM {table_name} WHERE {pk_column} = ?", (record_id,))
+            self.con.commit()
+            print(f"Запись {record_id} удалена из таблицы {table_name}!")
+        except sqlite3.Error as e:
+            if "FOREIGN KEY constraint failed" in str(e):
+                print("Ошибка: на эту запись ссылаются другие таблицы! Сначала удалите связанные записи.")
+            else:
+                print(f"Ошибка удаления: {e}")
+
 def main():
     db = CarDatabase()
     
@@ -846,61 +996,74 @@ def main():
     
     tables = ["countries", "brands", "models", "body_types", "engine_types", "drivetrains", "cars"]
     
-    while True:
-        print("\n" + "="*50)
-        print("АВТОМОБИЛЬНАЯ БАЗА ДАННЫХ")
-        print("="*50)
-        print("1 - Просмотр таблиц")
-        print("2 - Добавление данных")
-        print("3 - Редактирование данных")
-        print("4 - Статистика")
-        print("5 - Сортировка автомобилей")
-        print("0 - Выход")
-        print("\nВведите '0' в любой момент для возврата в главное меню")
-        
-        choice = input("\nВведите номер действия: ")
-        
-        if choice == "1":
-            print("\nДоступные таблицы:")
-            for i, table in enumerate(tables, 1):
-                print(f"{i} - {table}")
+    try:
+        while True:
+            print("\n" + "="*50)
+            print("АВТОМОБИЛЬНАЯ БАЗА ДАННЫХ")
+            print("="*50)
+            print("1 - Просмотр таблиц")
+            print("2 - Добавление данных")
+            print("3 - Редактирование данных")
+            print("4 - Статистика")
+            print("5 - Сортировка автомобилей")
+            print("6 - Удаление данных")
+            print("0 - Выход")
+            print("\nВведите '0' в любой момент для возврата в главное меню")
             
-            table_choice = input("Введите номер таблицы для просмотра: ")
-            if db.check_exit(table_choice):
-                continue
-            if table_choice.isdigit() and 1 <= int(table_choice) <= len(tables):
-                db.get_table_data(tables[int(table_choice)-1])
-            else:
-                print("Ошибка: введите корректный номер таблицы!")
-        
-        elif choice == "2":
-            print("\nДоступные таблицы:")
-            for i, table in enumerate(tables, 1):
-                print(f"{i} - {table}")
+            choice = db.safe_int_input("\nВведите номер действия: ")
+            if choice is None:
+                print("До свидания!")
+                break
             
-            table_choice = input("Введите номер таблицы для добавления данных: ")
-            if db.check_exit(table_choice):
-                continue
-            if table_choice.isdigit() and 1 <= int(table_choice) <= len(tables):
-                db.add_data_to_table(tables[int(table_choice)-1])
+            if choice == 1:
+                print("\nДоступные таблицы:")
+                for i, table in enumerate(tables, 1):
+                    print(f"{i} - {table}")
+                
+                table_choice = db.safe_int_input("Введите номер таблицы для просмотра: ")
+                if table_choice is None:
+                    continue
+                if 1 <= table_choice <= len(tables):
+                    db.get_table_data(tables[table_choice-1])
+                else:
+                    print("Ошибка: введите корректный номер таблицы!")
+            
+            elif choice == 2:
+                print("\nДоступные таблицы:")
+                for i, table in enumerate(tables, 1):
+                    print(f"{i} - {table}")
+                
+                table_choice = db.safe_int_input("Введите номер таблицы для добавления данных: ")
+                if table_choice is None:
+                    continue
+                if 1 <= table_choice <= len(tables):
+                    db.add_data_to_table(tables[table_choice-1])
+                else:
+                    print("Ошибка: введите корректный номер таблицы!")
+            
+            elif choice == 3:
+                db.edit_data()
+            
+            elif choice == 4:
+                db.show_statistics()
+            
+            elif choice == 5:
+                db.sort_cars()
+            
+            elif choice == 6:
+                db.delete_data()
+            
+            elif choice == 0:
+                print("До свидания!")
+                break
+            
             else:
-                print("Ошибка: введите корректный номер таблицы!")
-        
-        elif choice == "3":
-            db.edit_data()
-        
-        elif choice == "4":
-            db.show_statistics()
-        
-        elif choice == "5":
-            db.sort_cars()
-        
-        elif choice == "0":
-            print("До свидания!")
-            break
-        
-        else:
-            print("Ошибка: введите число от 0 до 5!")
+                print("Ошибка: введите число от 0 до 6!")
+    finally:
+        db.close()
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()

@@ -1,18 +1,62 @@
-🚗 Car Database Schema (SQLite)
-A normalized relational database schema for managing automotive data using SQLite.
+﻿# 🚗 Car Database (SQLite + Python)
 
-This project models real-world car information including:
+Учебный проект: реляционная база данных автомобилей на SQLite с консольным менеджером на Python.
 
-Brands, models, and production eras
-Countries of origin
-Body types, engine types, and drivetrains
-Individual vehicles with VIN, horsepower, weight, and power-to-weight ratio
+## Состав проекта
 
-✨ Features:
+| Файл | Назначение |
+|---|---|
+| `SQLScript.txt` | Создание схемы (таблицы, триггеры, индексы, демо-данные) |
+| `PythonBD.py` | Консольное приложение для работы с БД |
+| `AutoSchema.db` | Готовая SQLite-база (открывается в DB Browser for SQLite) |
+| `Auto.drawio` | Диаграмма БД ([draw.io](https://app.diagrams.net/)) |
+| `AutoExcel.xlsx` | Таблицы проекта в Excel |
 
-Full referential integrity with foreign keys
-Computed columns (e.g., power_to_weight_ratio, production_status)
-Data validation via CHECK constraints
-Automatic change logging with triggers
-Indexes for performance optimization
-Perfect for learning database design, SQLite features, or as a foundation for car-related applications.
+## Схема БД
+
+7 нормализованных таблиц: `countries`, `brands`, `models`, `body_types`, `engine_types`, `drivetrains`, `cars` + `change_log` (журнал изменений).
+
+Особенности схемы:
+
+- **Полная ссылочная целостность** — внешние ключи (`PRAGMA foreign_keys = ON`)
+- **Вычисляемые колонки** (`GENERATED ALWAYS AS ... VIRTUAL`): `power_to_weight_ratio`, `brand_era`, `production_status`, `drive_type_category`
+- **Валидация данных** через `CHECK`-ограничения (длины строк, диапазоны значений)
+- **Журналирование изменений** — триггеры пишут INSERT/UPDATE/DELETE в таблицу `change_log`
+- **Индексы** на полях, используемых в JOIN и фильтрах
+
+## Требования
+
+- Python 3.8+ (сторонние библиотеки не нужны — только стандартная библиотека)
+
+## Запуск
+
+```bash
+python PythonBD.py
+```
+
+При первом запуске программа сама создаст папку `БД` рядом со скриптом, файл базы `БД\Автомобили.db` и выполнит `SQLScript.txt` (схема + демо-данные). Повторный запуск подключится к уже созданной базе.
+
+Чтобы использовать свою базу, укажите путь в `PythonBD.py`:
+
+```python
+self.db_path = r"путь\к\вашему\файлу.db"
+```
+
+## Меню программы
+
+1. Просмотр таблиц
+2. Добавление данных (с возможностью добавить связанные записи на лету)
+3. Редактирование записей (первичный ключ и вычисляемые поля недоступны — они защищены)
+4. Статистика по базе
+5. Сортировка автомобилей
+6. Удаление записей (с подтверждением и защитой от нарушения внешних ключей)
+0. Выход
+
+В любом подменю ввод `0` (или `exit`, `назад`) возвращает в главное меню.
+
+## Примеры запросов (в SQLScript.txt)
+
+- Автомобили с мощностью выше средней по марке
+- Средняя мощность и вес по странам, типам кузова и привода
+- Бренды с количеством моделей
+- Общая статистика по парку автомобилей
