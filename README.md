@@ -6,8 +6,6 @@ BDAuto — это реляционная база данных SQLite и Python-
 
 * `Python`
 * `SQLite`
-* `SQL`
-* `sqlite3` (стандартная библиотека Python)
 * `Excel`
 * `draw.io`
 
